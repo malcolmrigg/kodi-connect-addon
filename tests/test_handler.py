@@ -10,7 +10,6 @@ class TestHandler(unittest.TestCase):
     def setUp(self):
         library_cache = LibraryCache()
         self.kodi = KodiInterface(library_cache)
-        self.kodi.update_cache()
         self.handler = Handler(self.kodi)
 
     def test_unknown_type(self):

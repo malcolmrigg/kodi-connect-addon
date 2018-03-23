@@ -4,7 +4,7 @@ import xbmc
 from connect.utils import _get
 
 def _kodi_rpc(obj):
-    return json.loads(xbmc.executeJSONRPC(json.dumps(obj)))
+    return json.loads(xbmc.executeJSONRPC(json.dumps(obj)).decode('utf-8'))
 
 def get_movies():
     res = _kodi_rpc({
@@ -15,7 +15,7 @@ def get_movies():
             'properties': ['title', 'genre', 'cast', 'set']
         }
     })
-    return _get(res, 'result', 'movies')
+    return _get(res, 'result', 'movies') or []
 
 def get_movie_details(movieid):
     res = _kodi_rpc({
@@ -38,7 +38,7 @@ def get_tv_shows():
             'properties': ['title', 'genre', 'cast']
         }
     })
-    return _get(res, 'result', 'tvshows')
+    return _get(res, 'result', 'tvshows') or []
 
 def get_tvshow_details(tvshowid):
     res = _kodi_rpc({
@@ -112,6 +112,38 @@ def stop_player(playerid):
     })
 
     return res
+
+def seek_player(playerid, seconds):
+    if not playerid:
+        return None
+
+    res = _kodi_rpc({
+        "jsonrpc": "2.0",
+        "method": "Player.Seek",
+        "id": 1,
+        'params': {
+            'playerid': playerid,
+            "value": {"seconds": seconds},
+        },
+    })
+
+    return res
+
+def get_player_time(playerid):
+    if not playerid:
+        return None
+
+    res = _kodi_rpc({
+        "jsonrpc": "2.0",
+        "method": "Player.GetProperties",
+        "id": 1,
+        'params': {
+            'playerid': playerid,
+            "properties": ["time"],
+        },
+    })
+
+    return _get(res, 'result', 'time')
 
 def small_skip_backwards():
     xbmc.executebuiltin('PlayerControl(SmallSkipBackward)')
@@ -224,6 +256,54 @@ def seek_to_percentage(playerid, percentage):
     })
 
     return _get(res, 'result')
+
+def set_volume(volume):
+    res = _kodi_rpc({
+        "jsonrpc": "2.0",
+        "method": "Application.SetVolume",
+        "params": {
+            "volume": volume,
+        },
+        "id": 1,
+    })
+
+    return _get(res, 'result')
+
+def get_volume():
+    res = _kodi_rpc({
+        "jsonrpc": "2.0",
+        "method": "Application.GetProperties",
+        "params": {
+            "properties": ["volume"],
+        },
+        "id": 1,
+    })
+
+    return _get(res, 'result', 'volume')
+
+def set_mute(mute):
+    res = _kodi_rpc({
+        "jsonrpc": "2.0",
+        "method": "Application.SetMute",
+        "params": {
+            "mute": mute,
+        },
+        "id": 1,
+    })
+
+    return _get(res, 'result')
+
+def get_muted():
+    res = _kodi_rpc({
+        "jsonrpc": "2.0",
+        "method": "Application.GetProperties",
+        "params": {
+            "properties": ["muted"],
+        },
+        "id": 1,
+    })
+
+    return _get(res, 'result', 'muted')
 
 def execute_addon(params):
     res = _kodi_rpc({

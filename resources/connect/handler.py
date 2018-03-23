@@ -14,6 +14,21 @@ def capabilities_handler():
             "version": '3',
             "supportedOperations": ['Play', 'Pause', 'Stop', 'StartOver', 'Previous', 'Next', 'Rewind', 'FastForward'],
         },
+        {
+            "type": "AlexaInterface",
+            "interface": "Alexa.SeekController",
+            "version": "3"
+        },
+        {
+            "type": "AlexaInterface",
+            "interface": "Alexa.Speaker",
+            "version": "3",
+            "properties": {
+                "supported": [{"name": "volume"}, {"name": "muted"}],
+                "proactivelyReported": True,
+                "retrievable": True,
+            },
+        },
     ]
 
     if utils.cec_available():
@@ -73,6 +88,23 @@ class Handler(object):
         logger.debug('fastforward_handler')
         IOLoop.instance().add_callback(self.kodi.fastforward)
 
+    def seek_handler(self, delta_position):
+        logger.debug('seek_handler: {}'.format(delta_position))
+        milliseconds = self.kodi.seek(delta_position)
+        return {"status": "ok", "positionMilliseconds": milliseconds}
+
+    def set_volume_handler(self, volume):
+        logger.debug('set_volume_handler: {}'.format(volume))
+        IOLoop.instance().add_callback(self.kodi.set_volume, volume)
+
+    def adjust_volume_handler(self, volume):
+        logger.debug('adjust_volume_handler: {}'.format(volume))
+        IOLoop.instance().add_callback(self.kodi.adjust_volume, volume)
+
+    def set_mute_handler(self, mute):
+        logger.debug('set_mute_handler: {}'.format(mute))
+        IOLoop.instance().add_callback(self.kodi.set_mute, mute)
+
     def turnon_handler(self):
         logger.debug('turnon_handler')
         IOLoop.instance().add_callback(self.kodi.turnon)
@@ -81,8 +113,7 @@ class Handler(object):
         logger.debug('turnoff_handler')
         IOLoop.instance().add_callback(self.kodi.turnoff)
 
-# pylint: disable=too-many-branches
-
+    # pylint: disable=too-many-branches
     def handler(self, data):
         logger.debug('handler data: {}'.format(str(data)))
         response_data = {'status': 'ok'}
@@ -107,6 +138,14 @@ class Handler(object):
                 self.rewind_handler()
             elif data['commandType'] == 'fastForward':
                 self.fastforward_handler()
+            elif data['commandType'] == 'seek':
+                response_data = self.seek_handler(data.get('deltaPosition', 0))
+            elif data['commandType'] == 'setVolume':
+                self.set_volume_handler(data.get('volume', 0))
+            elif data['commandType'] == 'adjustVolume':
+                self.adjust_volume_handler(data.get('volume', 0))
+            elif data['commandType'] == 'setMute':
+                self.set_mute_handler(data.get('mute', False))
             elif data['commandType'] == 'turnOn' and utils.cec_available():
                 self.turnon_handler()
             elif data['commandType'] == 'turnOff' and utils.cec_available():

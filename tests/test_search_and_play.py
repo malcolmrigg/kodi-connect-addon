@@ -2,7 +2,7 @@
 
 import unittest
 
-from test_util import run_one
+from test_util import run_one, wait_for_library_index
 from connect.kodi import KodiInterface
 from connect.library_cache import LibraryCache
 from connect.custom_player import CustomPlayer
@@ -13,6 +13,7 @@ class TestSearchAndPlay(unittest.TestCase):
         library_cache = LibraryCache()
         self.kodi = KodiInterface(library_cache)
         self.kodi.update_cache()
+        wait_for_library_index(self.kodi)
         self.player = CustomPlayer()
         self.player.set_kodi(self.kodi)
         self.handler = Handler(self.kodi)
@@ -90,6 +91,37 @@ class TestSearchAndPlay(unittest.TestCase):
 
         self.assertEqual(current_item['type'], 'movie')
         self.assertEqual(current_item['id'], 161)
+
+    def test_search_and_play_movie_by_title_and_movie_mediatype(self):
+        self.handler.handler({
+            "type": "command",
+            "commandType": "searchAndPlay",
+            "filter": {
+                'titles': ['Maze Runner'],
+                'mediaType': 'movie',
+            }
+        })
+        run_one()
+
+        current_item = self.player._get_current_item()
+
+        self.assertEqual(current_item['type'], 'movie')
+        self.assertEqual(current_item['id'], 161)
+
+    def test_search_and_play_movie_by_title_and_tvshow_mediatype(self):
+        self.handler.handler({
+            "type": "command",
+            "commandType": "searchAndPlay",
+            "filter": {
+                'titles': ['Maze Runner'],
+                'mediaType': 'tv show',
+            }
+        })
+        run_one()
+
+        current_item = self.player._get_current_item()
+
+        self.assertIsNone(current_item)
 
     def test_search_and_play_movie_by_actor(self):
         self.handler.handler({

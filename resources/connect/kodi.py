@@ -1,9 +1,14 @@
 # pylint: disable=no-self-use
 
-import time
+import os
+from concurrent import futures
+
+from tornado.concurrent import run_on_executor
 
 from connect import kodi_rpc, filtering, strings, logger
 from connect.utils import notification, _get, _pick
+from connect.library_index import create_library_index
+from connect.fuzzy_filter import fuzzy_filter
 
 def get_next_episode_id(tvshow_id, season, episode):
     next_episode_id = kodi_rpc.get_episodeid(tvshow_id, season, episode + 1)
@@ -44,6 +49,24 @@ def get_current_item():
         }
 
     return None
+
+def convert_time_to_milliseconds(time):
+    milliseconds = 0
+    milliseconds += time['hours'] * 1000 * 60 * 60
+    milliseconds += time['minutes'] * 1000 * 60
+    milliseconds += time['seconds'] * 1000
+    milliseconds += time['milliseconds']
+    return milliseconds
+
+def get_player_time():
+    player_id = kodi_rpc.get_active_playerid()
+    if not player_id:
+        return None
+
+    time = kodi_rpc.get_player_time(player_id)
+    milliseconds = convert_time_to_milliseconds(time)
+
+    return milliseconds
 
 def play_movie(movie):
     logger.debug('Playing movie: {}'.format(movie['title']))
@@ -95,15 +118,27 @@ def get_display_entities(entities):
     return 'x'.join(display_entities)
 
 class KodiInterface(object):
+    executor = futures.ThreadPoolExecutor(max_workers=1)
+
     def __init__(self, library_cache):
         self.library_cache = library_cache
         self.library_index = None
         self.current_item = None
+        self.disable_ngram_index = 'DISABLE_NGRAM_INDEX' in os.environ
 
     def _get_video_library(self):
         movies, tvshows = self.library_cache.get_library()
 
         return movies, tvshows
+
+    @run_on_executor
+    def _update_library_index(self, movies, tvshows):
+        library_index = create_library_index(movies, tvshows)
+        self.library_index = library_index
+        logger.debug('Updated library index')
+
+    def set_disable_ngram_index(self, disable_ngram_index):
+        self.disable_ngram_index = disable_ngram_index
 
     def invalidate_cache(self):
         self.library_cache.invalidate()
@@ -115,6 +150,8 @@ class KodiInterface(object):
             tvshows = kodi_rpc.get_tv_shows()
             logger.debug('Found {} movies and {} tvshows'.format(len(movies), len(tvshows)))
             self.library_cache.set_library(movies, tvshows)
+            # self.library_index = create_library_index(movies, tvshows)
+            self._update_library_index(movies, tvshows)
 
     def update_current_item(self):
         current_item = get_current_item()
@@ -122,30 +159,15 @@ class KodiInterface(object):
             logger.debug('current_item: {}'.format(current_item))
             self.current_item = current_item
 
-    def fuzzy_filter(self, video_filter):
-        start = time.time()
+    def find_entities(self, video_filter):
+        if self.disable_ngram_index is True:
+            movies, tvshows = self._get_video_library()
+            return fuzzy_filter(movies, tvshows, video_filter)
 
-        movies, tvshows = self._get_video_library()
+        return self.library_index.find_by_filter(video_filter)
 
-        entities = []
-        if 'mediaType' in video_filter and video_filter['mediaType'] and video_filter['mediaType'] != 'movie':
-            pass
-        else:
-            entities = entities + movies
-
-        if 'mediaType' in video_filter and video_filter['mediaType'] and video_filter['mediaType'] != 'tv show':
-            pass
-        else:
-            entities = entities + tvshows
-
-        filtered_entities = filtering.filter_entities(video_filter, entities)
-
-        logger.debug('Fuzzy filter took {} ms'.format(int((time.time() - start) * 1000)))
-
-        return filtered_entities
-
-    def fuzzy_find_and_play(self, video_filter):
-        filtered_entities = self.fuzzy_filter(video_filter)
+    def find_and_play(self, video_filter):
+        filtered_entities = self.find_entities(video_filter)
 
         entity = filtering.get_best_match(filtered_entities)
         logger.debug('Found Entity {}'.format(str(entity)))
@@ -164,11 +186,8 @@ class KodiInterface(object):
 
         return True
 
-    def find_and_play(self, video_filter):
-        return self.fuzzy_find_and_play(video_filter)
-
     def find_and_display(self, video_filter):
-        filtered_entities = self.fuzzy_filter(video_filter)
+        filtered_entities = self.find_entities(video_filter)
 
         if not filtered_entities:
             notification(strings.NOTHING_FOUND)
@@ -255,6 +274,31 @@ class KodiInterface(object):
 
     def fastforward(self):
         kodi_rpc.small_skip_forward()
+        return True
+
+    def seek(self, delta_position):
+        playerid = kodi_rpc.get_active_playerid()
+        kodi_rpc.seek_player(playerid, delta_position)
+        time = kodi_rpc.get_player_time(playerid)
+        milliseconds = convert_time_to_milliseconds(time)
+        return milliseconds
+
+    def set_volume(self, volume):
+        kodi_rpc.set_volume(volume)
+        return True
+
+    def adjust_volume(self, volume):
+        current_volume = kodi_rpc.get_volume()
+        logger.debug('Current volume: {}'.format(current_volume))
+
+        new_volume = max(min(current_volume + volume, 100), 0)
+        logger.debug('Adjusting volume to: {}'.format(new_volume))
+
+        kodi_rpc.set_volume(new_volume)
+        return True
+
+    def set_mute(self, mute):
+        kodi_rpc.set_mute(mute)
         return True
 
     def turnon(self):
